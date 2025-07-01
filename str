@@ -1,0 +1,1359 @@
+package com.example.attendance;
+
+import java.util.stream.Collectors;
+import javafx.application.Application;
+import javafx.geometry.*;
+import javafx.scene.Scene;
+import javafx.scene.control.*;
+import javafx.scene.control.cell.PropertyValueFactory;
+import javafx.scene.layout.*;
+import javafx.scene.paint.Color;
+import javafx.scene.text.*;
+import javafx.stage.Stage;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+
+import java.io.*;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+
+public class AttendanceManagementSystem extends Application {
+
+    // 使用相对路径
+    private static final String EMPLOYEE_FILE = "C:\\Users\\w'j'm\\Desktop\\职员信息.txt";
+    private static final String ATTENDANCE_FILE = "C:\\Users\\w'j'm\\Desktop\\考勤信息.txt";
+
+    // 数据存储
+    private ObservableList<Employee> employees = FXCollections.observableArrayList();
+    private ObservableList<AttendanceRecord> attendanceRecords = FXCollections.observableArrayList();
+    private Employee currentUser;
+
+    // UI组件
+    private BorderPane root = new BorderPane();
+    private StackPane loginPane = new StackPane();
+    private TabPane adminTabPane = new TabPane();
+    private TabPane clerkTabPane = new TabPane();
+    private TabPane employeeTabPane = new TabPane();
+
+    // 表格视图
+    private TableView<Employee> employeeTable = new TableView<>();
+    private TableView<AttendanceRecord> attendanceTable = new TableView<>();
+
+    public static void main(String[] args) {
+        launch(args);
+    }
+
+    @Override
+    public void start(Stage primaryStage) {
+        // 从文件加载数据
+        loadDataFromFiles();
+
+        // 创建界面
+        createLoginUI();
+        createAdminUI();
+        createClerkUI();
+        createEmployeeUI();
+
+        root.setCenter(loginPane);
+        Scene scene = new Scene(root, 1000, 650);
+        primaryStage.setTitle("员工考勤信息管理系统");
+        primaryStage.setScene(scene);
+        primaryStage.show();
+    }
+
+    // 从文件加载数据
+    private void loadDataFromFiles() {
+        loadEmployees();
+        loadAttendanceRecords();
+
+        // 如果文件为空，显示警告
+        if (employees.isEmpty()) {
+            showAlert("数据错误", "职员信息文件为空或未找到！");
+        }
+
+        if (attendanceRecords.isEmpty()) {
+            showAlert("数据错误", "考勤信息文件为空或未找到！");
+        }
+    }
+
+    // 加载职员信息
+    private void loadEmployees() {
+        try (BufferedReader reader = new BufferedReader(new FileReader(EMPLOYEE_FILE))) {
+            String line;
+            // 检查是否有标题行
+            boolean hasHeader = reader.readLine() != null;
+
+            while ((line = reader.readLine()) != null) {
+                // 跳过空行
+                if (line.trim().isEmpty()) continue;
+
+                String[] parts = line.split(",");
+                if (parts.length == 8) {
+                    // 确保角色字段为大写
+                    String role = parts[6].trim().toUpperCase();
+                    employees.add(new Employee(
+                            parts[0].trim(), parts[1].trim(), parts[2].trim(), parts[3].trim(),
+                            parts[4].trim(), parts[5].trim(), role, parts[7].trim()
+                    ));
+                } else {
+                    System.err.println("无效的职员数据行: " + line);
+                }
+            }
+        } catch (IOException e) {
+            showAlert("文件错误", "无法读取职员信息文件: " + e.getMessage());
+        } catch (Exception e) {
+            showAlert("数据错误", "职员信息格式不正确: " + e.getMessage());
+        }
+    }
+
+    // 加载考勤信息 - 修复日期解析问题
+    private void loadAttendanceRecords() {
+        DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy-M-d");
+
+        try (BufferedReader reader = new BufferedReader(new FileReader(ATTENDANCE_FILE))) {
+            String line;
+            // 检查是否有标题行
+            boolean hasHeader = reader.readLine() != null;
+
+            while ((line = reader.readLine()) != null) {
+                // 跳过空行
+                if (line.trim().isEmpty()) continue;
+
+                String[] parts = line.split(",");
+                if (parts.length >= 6) {
+                    try {
+                        // 处理日期格式可能不一致的问题
+                        String dateStr = parts[0].trim();
+                        // 如果日期格式包含斜杠，替换为连字符
+                        if (dateStr.contains("/")) {
+                            dateStr = dateStr.replace("/", "-");
+                        }
+
+                        LocalDate date = LocalDate.parse(dateStr, dateFormatter);
+                        attendanceRecords.add(new AttendanceRecord(
+                                date, parts[1].trim(), parts[2].trim(),
+                                parts[3].trim(), parts[4].trim(), parts[5].trim()
+                        ));
+                    } catch (Exception e) {
+                        System.err.println("日期解析错误: " + parts[0] + " - " + e.getMessage());
+                    }
+                } else {
+                    System.err.println("无效的考勤数据行: " + line);
+                }
+            }
+        } catch (IOException e) {
+            showAlert("文件错误", "无法读取考勤信息文件: " + e.getMessage());
+        } catch (Exception e) {
+            showAlert("数据错误", "考勤信息格式不正确: " + e.getMessage());
+        }
+    }
+
+    // 创建登录界面
+    private void createLoginUI() {
+        VBox loginBox = new VBox(20);
+        loginBox.setAlignment(Pos.CENTER);
+        loginBox.setPadding(new Insets(30));
+        loginBox.setStyle("-fx-background-color: #f0f8ff; -fx-border-color: #4682b4; -fx-border-width: 2; -fx-border-radius: 10;");
+
+        Label titleLabel = new Label("员工考勤信息管理系统");
+        titleLabel.setFont(Font.font("Arial", FontWeight.BOLD, 28));
+        titleLabel.setTextFill(Color.DARKBLUE);
+
+        GridPane formGrid = new GridPane();
+        formGrid.setAlignment(Pos.CENTER);
+        formGrid.setHgap(10);
+        formGrid.setVgap(15);
+
+        Label idLabel = new Label("员工编号:");
+        idLabel.setFont(Font.font(16));
+        TextField idField = new TextField();
+        idField.setPromptText("请输入员工编号");
+        idField.setPrefWidth(200);
+
+        Label pwdLabel = new Label("密    码:");
+        pwdLabel.setFont(Font.font(16));
+        PasswordField pwdField = new PasswordField();
+        pwdField.setPromptText("请输入密码");
+        pwdField.setPrefWidth(200);
+
+        formGrid.addRow(0, idLabel, idField);
+        formGrid.addRow(1, pwdLabel, pwdField);
+
+        Button loginBtn = new Button("登 录");
+        loginBtn.setStyle("-fx-background-color: #4682b4; -fx-text-fill: white; -fx-font-size: 16; -fx-padding: 8 20;");
+        loginBtn.setOnAction(e -> {
+            String id = idField.getText();
+            String password = pwdField.getText();
+            authenticateUser(id, password);
+        });
+
+        Label footerLabel = new Label("© 2025 员工考勤管理系统 - 版本 wjm");
+        footerLabel.setFont(Font.font(12));
+        footerLabel.setTextFill(Color.GRAY);
+
+        loginBox.getChildren().addAll(titleLabel, formGrid, loginBtn, footerLabel);
+        loginPane.getChildren().add(loginBox);
+    }
+
+    // 用户认证
+    private void authenticateUser(String id, String password) {
+        for (Employee emp : employees) {
+            if (emp.getId().equals(id) && emp.getPassword().equals(password)) {
+                currentUser = emp;
+                System.out.println("登录成功: " + emp.getName() + " 角色: " + emp.getRole());
+                showUserDashboard();
+                return;
+            }
+        }
+        showAlert("登录失败", "员工编号或密码错误，请重试！");
+    }
+
+    // 显示用户仪表盘
+    private void showUserDashboard() {
+        if (currentUser == null) return;
+
+        String role = currentUser.getRole();
+        System.out.println("当前用户角色: " + role);
+
+        if ("管理员".equals(role)) {
+            System.out.println("显示管理员界面");
+            root.setCenter(adminTabPane);
+        } else if ("考勤员".equals(role)) {
+            System.out.println("显示考勤员界面");
+            root.setCenter(clerkTabPane);
+        } else {
+            System.out.println("显示普通职员界面");
+            root.setCenter(employeeTabPane);
+        }
+    }
+
+
+    // 创建职员管理面板
+    private VBox createEmployeeManagementPane() {
+        VBox pane = new VBox(20);
+        pane.setPadding(new Insets(20));
+
+        // 创建表格
+        TableColumn<Employee, String> idCol = new TableColumn<>("职工编号");
+        idCol.setCellValueFactory(new PropertyValueFactory<>("id"));
+
+        TableColumn<Employee, String> nameCol = new TableColumn<>("姓名");
+        nameCol.setCellValueFactory(new PropertyValueFactory<>("name"));
+
+        TableColumn<Employee, String> deptCol = new TableColumn<>("部门");
+        deptCol.setCellValueFactory(new PropertyValueFactory<>("department"));
+
+        TableColumn<Employee, String> genderCol = new TableColumn<>("性别");
+        genderCol.setCellValueFactory(new PropertyValueFactory<>("gender"));
+
+        TableColumn<Employee, String> positionCol = new TableColumn<>("职务");
+        positionCol.setCellValueFactory(new PropertyValueFactory<>("position"));
+
+        TableColumn<Employee, String> roleCol = new TableColumn<>("权限");
+        roleCol.setCellValueFactory(new PropertyValueFactory<>("role"));
+
+        employeeTable.getColumns().setAll(idCol, nameCol, deptCol, genderCol, positionCol, roleCol);
+        employeeTable.setItems(employees);
+        employeeTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+
+        // 操作按钮
+        HBox buttonBox = new HBox(10);
+        buttonBox.setAlignment(Pos.CENTER);
+
+        Button addBtn = new Button("添加职员");
+        addBtn.setStyle("-fx-background-color: #4CAF50; -fx-text-fill: white;");
+        addBtn.setOnAction(e -> addEmployee());
+
+        Button editBtn = new Button("修改信息");
+        editBtn.setStyle("-fx-background-color: #2196F3; -fx-text-fill: white;");
+        editBtn.setOnAction(e -> editEmployee());
+
+        Button deleteBtn = new Button("删除职员");
+        deleteBtn.setStyle("-fx-background-color: #f44336; -fx-text-fill: white;");
+        deleteBtn.setOnAction(e -> deleteEmployee());
+
+        buttonBox.getChildren().addAll(addBtn, editBtn, deleteBtn);
+
+        pane.getChildren().addAll(new Label("职员信息管理"), employeeTable, buttonBox);
+        return pane;
+    }
+
+    // 创建考勤查询面板 - 修复部门考勤查询
+    private VBox createAttendanceQueryPane() {
+        VBox pane = new VBox(20);
+        pane.setPadding(new Insets(20));
+
+        // 部门选择
+        HBox filterBox = new HBox(10);
+        filterBox.setAlignment(Pos.CENTER_LEFT);
+
+        Label deptLabel = new Label("选择部门:");
+        ComboBox<String> deptCombo = new ComboBox<>();
+        Button queryBtn = new Button("查询");
+
+        // 获取部门列表
+        List<String> departments = getDepartments();
+        if (!departments.isEmpty()) {
+            deptCombo.getItems().addAll(departments);
+            deptCombo.getSelectionModel().selectFirst();
+        } else {
+            deptCombo.getItems().add("无部门数据");
+            deptCombo.getSelectionModel().selectFirst();
+            queryBtn.setDisable(true);
+        }
+
+        // 创建表格
+        TableView<AttendanceRecord> departmentAttendanceTable = new TableView<>();
+
+        TableColumn<AttendanceRecord, String> dateCol = new TableColumn<>("日期");
+        dateCol.setCellValueFactory(new PropertyValueFactory<>("dateString"));
+
+        TableColumn<AttendanceRecord, String> empIdCol = new TableColumn<>("职工编号");
+        empIdCol.setCellValueFactory(new PropertyValueFactory<>("employeeId"));
+
+        TableColumn<AttendanceRecord, String> statusCol = new TableColumn<>("状态");
+        statusCol.setCellValueFactory(new PropertyValueFactory<>("status"));
+
+        TableColumn<AttendanceRecord, String> startCol = new TableColumn<>("到岗时间");
+        startCol.setCellValueFactory(new PropertyValueFactory<>("startTime"));
+
+        TableColumn<AttendanceRecord, String> endCol = new TableColumn<>("下岗时间");
+        endCol.setCellValueFactory(new PropertyValueFactory<>("endTime"));
+
+        TableColumn<AttendanceRecord, String> remarksCol = new TableColumn<>("备注");
+        remarksCol.setCellValueFactory(new PropertyValueFactory<>("remarks"));
+
+        departmentAttendanceTable.getColumns().setAll(dateCol, empIdCol, statusCol, startCol, endCol, remarksCol);
+        departmentAttendanceTable.setItems(attendanceRecords); // 初始显示所有记录
+
+        // 查询按钮事件
+        queryBtn.setOnAction(e -> {
+            String dept = deptCombo.getValue();
+            if (dept != null && !"无部门数据".equals(dept)) {
+                showDepartmentAttendance(dept, departmentAttendanceTable);
+            }
+        });
+
+        filterBox.getChildren().addAll(deptLabel, deptCombo, queryBtn);
+        pane.getChildren().addAll(new Label("部门考勤查询"), filterBox, departmentAttendanceTable);
+
+        return pane;
+    }
+
+    // 创建统计分析面板 - 完全重写
+    private VBox createStatisticsPane() {
+        VBox pane = new VBox(20);
+        pane.setPadding(new Insets(20));
+
+        // 月度统计
+        HBox monthlyBox = new HBox(10);
+        monthlyBox.setAlignment(Pos.CENTER_LEFT);
+
+        Label monthLabel = new Label("选择月份:");
+        ComboBox<String> monthCombo = new ComboBox<>();
+        monthCombo.getItems().addAll("一月", "二月", "三月", "四月", "五月", "六月",
+                "七月", "八月", "九月", "十月", "十一月", "十二月");
+        monthCombo.getSelectionModel().select(LocalDate.now().getMonthValue() - 1);
+
+        Label yearLabel1 = new Label("年份:");
+        ComboBox<Integer> yearCombo1 = new ComboBox<>();
+        int currentYear = LocalDate.now().getYear();
+        for (int i = currentYear - 5; i <= currentYear + 1; i++) {
+            yearCombo1.getItems().add(i);
+        }
+        yearCombo1.getSelectionModel().select(Integer.valueOf(currentYear));
+
+        Button monthlyBtn = new Button("月度统计");
+        monthlyBtn.setStyle("-fx-background-color: #2196F3; -fx-text-fill: white;");
+
+        monthlyBox.getChildren().addAll(monthLabel, monthCombo, yearLabel1, yearCombo1, monthlyBtn);
+
+        // 年度统计
+        HBox yearlyBox = new HBox(10);
+        yearlyBox.setAlignment(Pos.CENTER_LEFT);
+
+        Label yearLabel2 = new Label("选择年份:");
+        ComboBox<Integer> yearCombo2 = new ComboBox<>();
+        for (int i = currentYear - 5; i <= currentYear + 1; i++) {
+            yearCombo2.getItems().add(i);
+        }
+        yearCombo2.getSelectionModel().select(Integer.valueOf(currentYear));
+
+        Button yearlyBtn = new Button("年度统计");
+        yearlyBtn.setStyle("-fx-background-color: #4CAF50; -fx-text-fill: white;");
+        yearlyBox.getChildren().addAll(yearLabel2, yearCombo2, yearlyBtn);
+
+        // 统计结果区域
+        TextArea statsArea = new TextArea();
+        statsArea.setEditable(false);
+        statsArea.setPrefHeight(300);
+        statsArea.setId("stats-area");
+
+        // 月度统计按钮事件
+        monthlyBtn.setOnAction(e -> {
+            int month = monthCombo.getSelectionModel().getSelectedIndex() + 1;
+            int year = yearCombo1.getValue();
+            showMonthlyStats(month, year, statsArea);
+        });
+
+        // 年度统计按钮事件
+        yearlyBtn.setOnAction(e -> {
+            int year = yearCombo2.getValue();
+            showYearlyStats(year, statsArea);
+        });
+
+        pane.getChildren().addAll(
+                new Label("考勤统计分析"),
+                monthlyBox,
+                yearlyBox,
+                new Separator(),
+                statsArea
+        );
+
+        return pane;
+    }
+
+    // 创建密码修改面板
+    private VBox createPasswordChangePane() {
+        VBox pane = new VBox(20);
+        pane.setPadding(new Insets(20));
+        pane.setAlignment(Pos.CENTER);
+
+        GridPane grid = new GridPane();
+        grid.setAlignment(Pos.CENTER);
+        grid.setHgap(10);
+        grid.setVgap(15);
+
+        Label oldPwdLabel = new Label("原密码:");
+        PasswordField oldPwdField = new PasswordField();
+        oldPwdField.setPromptText("输入原密码");
+        oldPwdField.setPrefWidth(200);
+
+        Label newPwdLabel = new Label("新密码:");
+        PasswordField newPwdField = new PasswordField();
+        newPwdField.setPromptText("输入新密码");
+        newPwdField.setPrefWidth(200);
+
+        Label confirmPwdLabel = new Label("确认密码:");
+        PasswordField confirmPwdField = new PasswordField();
+        confirmPwdField.setPromptText("再次输入新密码");
+        confirmPwdField.setPrefWidth(200);
+
+        grid.addRow(0, oldPwdLabel, oldPwdField);
+        grid.addRow(1, newPwdLabel, newPwdField);
+        grid.addRow(2, confirmPwdLabel, confirmPwdField);
+
+        Button changeBtn = new Button("修改密码");
+        changeBtn.setStyle("-fx-background-color: #2196F3; -fx-text-fill: white; -fx-font-size: 14;");
+        changeBtn.setOnAction(e -> changePassword(oldPwdField.getText(), newPwdField.getText(), confirmPwdField.getText()));
+
+        pane.getChildren().addAll(new Label("修改密码"), grid, changeBtn);
+        return pane;
+    }
+
+    // 创建管理员界面
+    private void createAdminUI() {
+        // 职员管理标签页
+        Tab employeeTab = new Tab("职员管理");
+        employeeTab.setContent(createEmployeeManagementPane());
+
+        // 考勤查询标签页
+        Tab attendanceTab = new Tab("考勤查询");
+        attendanceTab.setContent(createAttendanceQueryPane());
+
+        // 统计分析标签页
+        Tab statsTab = new Tab("统计分析");
+        statsTab.setContent(createStatisticsPane());
+
+        // 密码修改标签页
+        Tab passwordTab = new Tab("修改密码");
+        passwordTab.setContent(createPasswordChangePane());
+
+        adminTabPane.getTabs().addAll(employeeTab, attendanceTab, statsTab, passwordTab);
+        adminTabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+    }
+
+    // 创建考勤员界面
+    private void createClerkUI() {
+        // 考勤管理标签页
+        Tab attendanceTab = new Tab("考勤管理");
+        attendanceTab.setContent(createAttendanceManagementPane());
+
+        // 考勤查询标签页
+        Tab queryTab = new Tab("考勤查询");
+        queryTab.setContent(createAttendanceQueryPane());
+
+        // 统计分析标签页
+        Tab statsTab = new Tab("统计分析");
+        statsTab.setContent(createStatisticsPane());
+
+        // 密码修改标签页
+        Tab passwordTab = new Tab("修改密码");
+        passwordTab.setContent(createPasswordChangePane());
+
+        clerkTabPane.getTabs().addAll(attendanceTab, queryTab, statsTab, passwordTab);
+        clerkTabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+    }
+
+    // 创建考勤管理面板
+    private VBox createAttendanceManagementPane() {
+        VBox pane = new VBox(20);
+        pane.setPadding(new Insets(20));
+
+        // 表单区域
+        GridPane formGrid = new GridPane();
+        formGrid.setAlignment(Pos.CENTER);
+        formGrid.setHgap(10);
+        formGrid.setVgap(15);
+        formGrid.setPadding(new Insets(10));
+        formGrid.setStyle("-fx-background-color: #f9f9f9; -fx-border-color: #ddd; -fx-border-width: 1;");
+
+        Label dateLabel = new Label("日期:");
+        DatePicker datePicker = new DatePicker(LocalDate.now());
+
+        Label empLabel = new Label("职员编号:");
+        TextField empField = new TextField();
+        empField.setPromptText("输入职员编号");
+
+        Label statusLabel = new Label("出勤状态:");
+        ComboBox<String> statusCombo = new ComboBox<>();
+        statusCombo.getItems().addAll("出勤", "出差", "病假", "事假", "旷工", "休假", "迟到", "早退", "加班");
+        statusCombo.getSelectionModel().selectFirst();
+
+        Label startLabel = new Label("到岗时间:");
+        TextField startField = new TextField();
+        startField.setPromptText("HH:mm");
+        startField.setText("09:00"); // 默认值
+
+        Label endLabel = new Label("下岗时间:");
+        TextField endField = new TextField();
+        endField.setPromptText("HH:mm");
+        endField.setText("18:00"); // 默认值
+
+        Label remarksLabel = new Label("备注:");
+        TextField remarksField = new TextField();
+        remarksField.setPromptText("输入备注信息");
+
+        formGrid.addRow(0, dateLabel, datePicker);
+        formGrid.addRow(1, empLabel, empField);
+        formGrid.addRow(2, statusLabel, statusCombo);
+        formGrid.addRow(3, startLabel, startField);
+        formGrid.addRow(4, endLabel, endField);
+        formGrid.addRow(5, remarksLabel, remarksField);
+
+        // 按钮区域
+        HBox buttonBox = new HBox(10);
+        buttonBox.setAlignment(Pos.CENTER);
+
+        Button addBtn = new Button("添加记录");
+        addBtn.setStyle("-fx-background-color: #4CAF50; -fx-text-fill: white;");
+        addBtn.setOnAction(e -> {
+            // 验证输入
+            if (empField.getText().isEmpty()) {
+                showAlert("错误", "请输入职员编号！");
+                return;
+            }
+
+            // 验证职员是否存在
+            boolean employeeExists = false;
+            for (Employee emp : employees) {
+                if (emp.getId().equals(empField.getText())) {
+                    employeeExists = true;
+                    break;
+                }
+            }
+
+            if (!employeeExists) {
+                showAlert("错误", "职员编号不存在！");
+                return;
+            }
+
+            AttendanceRecord record = new AttendanceRecord(
+                    datePicker.getValue(),
+                    empField.getText(),
+                    statusCombo.getValue(),
+                    startField.getText(),
+                    endField.getText(),
+                    remarksField.getText()
+            );
+            attendanceRecords.add(record);
+            saveAttendanceRecords(); // 保存到文件
+            showAlert("成功", "考勤记录添加成功！");
+
+            // 清空表单
+            datePicker.setValue(LocalDate.now());
+            empField.clear();
+            statusCombo.getSelectionModel().selectFirst();
+            startField.clear();
+            endField.clear();
+            remarksField.clear();
+        });
+
+        Button clearBtn = new Button("清空表单");
+        clearBtn.setStyle("-fx-background-color: #f44336; -fx-text-fill: white;");
+        clearBtn.setOnAction(e -> {
+            datePicker.setValue(LocalDate.now());
+            empField.clear();
+            statusCombo.getSelectionModel().selectFirst();
+            startField.clear();
+            endField.clear();
+            remarksField.clear();
+        });
+
+        buttonBox.getChildren().addAll(addBtn, clearBtn);
+
+        pane.getChildren().addAll(new Label("考勤信息管理"), formGrid, buttonBox);
+        return pane;
+    }
+
+    // 创建普通职员界面
+    private void createEmployeeUI() {
+        // 考勤查询标签页
+        Tab queryTab = new Tab("考勤查询");
+        queryTab.setContent(createEmployeeQueryPane());
+
+        // 密码修改标签页
+        Tab passwordTab = new Tab("修改密码");
+        passwordTab.setContent(createPasswordChangePane());
+
+        employeeTabPane.getTabs().addAll(queryTab, passwordTab);
+        employeeTabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+    }
+
+    // 创建职员查询面板 - 修复查询功能
+    private VBox createEmployeeQueryPane() {
+        VBox pane = new VBox(20);
+        pane.setPadding(new Insets(20));
+
+        // 查询选项
+        HBox optionBox = new HBox(10);
+        optionBox.setAlignment(Pos.CENTER);
+
+        ToggleGroup group = new ToggleGroup();
+        RadioButton dailyBtn = new RadioButton("按日查询");
+        dailyBtn.setToggleGroup(group);
+        dailyBtn.setSelected(true);
+
+        RadioButton monthlyBtn = new RadioButton("按月查询");
+        monthlyBtn.setToggleGroup(group);
+
+        optionBox.getChildren().addAll(dailyBtn, monthlyBtn);
+
+        // 日期选择
+        HBox dateBox = new HBox(10);
+        dateBox.setAlignment(Pos.CENTER);
+
+        Label dateLabel = new Label("选择日期:");
+        DatePicker datePicker = new DatePicker(LocalDate.now());
+
+        Label monthLabel = new Label("选择月份:");
+        ComboBox<String> monthCombo = new ComboBox<>();
+        monthCombo.getItems().addAll("一月", "二月", "三月", "四月", "五月", "六月",
+                "七月", "八月", "九月", "十月", "十一月", "十二月");
+        monthCombo.getSelectionModel().select(LocalDate.now().getMonthValue() - 1);
+        monthCombo.setDisable(true);
+
+        Label yearLabel = new Label("年份:");
+        ComboBox<Integer> yearCombo = new ComboBox<>();
+        int currentYear = LocalDate.now().getYear();
+        for (int i = currentYear - 5; i <= currentYear + 1; i++) {
+            yearCombo.getItems().add(i);
+        }
+        yearCombo.getSelectionModel().select(Integer.valueOf(currentYear));
+        yearCombo.setDisable(true);
+
+        Button queryBtn = new Button("查询");
+        queryBtn.setStyle("-fx-background-color: #2196F3; -fx-text-fill: white;");
+
+        dateBox.getChildren().addAll(dateLabel, datePicker, monthLabel, monthCombo, yearLabel, yearCombo, queryBtn);
+
+        // 表格
+        TableView<AttendanceRecord> empAttendanceTable = new TableView<>();
+
+        TableColumn<AttendanceRecord, String> dateCol = new TableColumn<>("日期");
+        dateCol.setCellValueFactory(new PropertyValueFactory<>("dateString"));
+
+        TableColumn<AttendanceRecord, String> statusCol = new TableColumn<>("状态");
+        statusCol.setCellValueFactory(new PropertyValueFactory<>("status"));
+
+        TableColumn<AttendanceRecord, String> startCol = new TableColumn<>("到岗时间");
+        startCol.setCellValueFactory(new PropertyValueFactory<>("startTime"));
+
+        TableColumn<AttendanceRecord, String> endCol = new TableColumn<>("下岗时间");
+        endCol.setCellValueFactory(new PropertyValueFactory<>("endTime"));
+
+        TableColumn<AttendanceRecord, String> remarksCol = new TableColumn<>("备注");
+        remarksCol.setCellValueFactory(new PropertyValueFactory<>("remarks"));
+
+        empAttendanceTable.getColumns().addAll(dateCol, statusCol, startCol, endCol, remarksCol);
+        empAttendanceTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+
+        // 查询按钮事件 - 修复空指针问题
+        queryBtn.setOnAction(e -> {
+            if (currentUser == null) {
+                showAlert("错误", "未登录用户！");
+                return;
+            }
+
+            if (dailyBtn.isSelected()) {
+                if (datePicker.getValue() == null) {
+                    showAlert("错误", "请选择查询日期！");
+                    return;
+                }
+                showEmployeeAttendanceByDate(datePicker.getValue(), empAttendanceTable);
+            } else {
+                int month = monthCombo.getSelectionModel().getSelectedIndex() + 1;
+                int year = yearCombo.getValue();
+                showEmployeeAttendanceByMonth(month, year, empAttendanceTable);
+            }
+        });
+
+        // 切换查询类型事件
+        dailyBtn.selectedProperty().addListener((obs, oldVal, newVal) -> {
+            datePicker.setDisable(!newVal);
+            monthCombo.setDisable(newVal);
+            yearCombo.setDisable(newVal);
+        });
+
+        monthlyBtn.selectedProperty().addListener((obs, oldVal, newVal) -> {
+            datePicker.setDisable(newVal);
+            monthCombo.setDisable(!newVal);
+            yearCombo.setDisable(!newVal);
+        });
+
+        pane.getChildren().addAll(
+                new Label("个人考勤查询"),
+                optionBox,
+                dateBox,
+                empAttendanceTable
+        );
+
+        return pane;
+    }
+
+    // =============== 辅助方法 ===============
+    private List<String> getDepartments() {
+        Set<String> depts = new HashSet<>();
+        for (Employee emp : employees) {
+            depts.add(emp.getDepartment());
+        }
+        return new ArrayList<>(depts);
+    }
+
+    // 修复部门考勤查询 - 提高效率
+    private void showDepartmentAttendance(String department, TableView<AttendanceRecord> table) {
+        ObservableList<AttendanceRecord> deptRecords = FXCollections.observableArrayList();
+
+        // 获取部门所有员工ID
+        Set<String> deptEmployeeIds = employees.stream()
+                .filter(emp -> emp.getDepartment().equals(department))
+                .map(Employee::getId)
+                .collect(Collectors.toSet());
+
+        // 筛选考勤记录
+        attendanceRecords.stream()
+                .filter(record -> deptEmployeeIds.contains(record.getEmployeeId()))
+                .forEach(deptRecords::add);
+
+        // 更新表格数据
+        table.setItems(deptRecords);
+
+        if (deptRecords.isEmpty()) {
+            showAlert("提示", department + "部门没有考勤记录");
+        }
+    }
+
+    // 修复月度统计
+    private void showMonthlyStats(int month, int year, TextArea statsArea) {
+        StringBuilder result = new StringBuilder();
+        result.append(year).append("年").append(getMonthName(month)).append("月考勤统计:\n\n");
+
+        Map<String, Integer> workDaysMap = new HashMap<>();
+        Map<String, Integer> lateDaysMap = new HashMap<>();
+        Map<String, Integer> leaveDaysMap = new HashMap<>();
+        Map<String, Integer> overtimeMap = new HashMap<>();
+        Map<String, Integer> absenceMap = new HashMap<>();
+
+        // 初始化统计数据
+        for (Employee emp : employees) {
+            workDaysMap.put(emp.getId(), 0);
+            lateDaysMap.put(emp.getId(), 0);
+            leaveDaysMap.put(emp.getId(), 0);
+            overtimeMap.put(emp.getId(), 0);
+            absenceMap.put(emp.getId(), 0);
+        }
+
+        // 统计考勤数据
+        for (AttendanceRecord record : attendanceRecords) {
+            LocalDate recordDate = record.getDate();
+            if (recordDate.getMonthValue() == month && recordDate.getYear() == year) {
+                String empId = record.getEmployeeId();
+                String status = record.getStatus();
+
+                switch (status) {
+                    case "出勤":
+                        workDaysMap.put(empId, workDaysMap.get(empId) + 1);
+                        // 检查是否迟到
+                        if (record.getStartTime().compareTo("09:00") > 0) {
+                            lateDaysMap.put(empId, lateDaysMap.get(empId) + 1);
+                        }
+                        break;
+                    case "病假":
+                    case "事假":
+                    case "休假":
+                        leaveDaysMap.put(empId, leaveDaysMap.get(empId) + 1);
+                        break;
+                    case "旷工":
+                        absenceMap.put(empId, absenceMap.get(empId) + 1);
+                        break;
+                    case "加班":
+                        // 计算加班时长
+                        String start = record.getStartTime();
+                        String end = record.getEndTime();
+                        if (start != null && end != null) {
+                            try {
+                                String[] startParts = start.split(":");
+                                String[] endParts = end.split(":");
+                                int startHour = Integer.parseInt(startParts[0]);
+                                int startMin = Integer.parseInt(startParts[1]);
+                                int endHour = Integer.parseInt(endParts[0]);
+                                int endMin = Integer.parseInt(endParts[1]);
+
+                                int totalMinutes = (endHour * 60 + endMin) - (startHour * 60 + startMin);
+                                int hours = totalMinutes / 60;
+
+                                overtimeMap.put(empId, overtimeMap.get(empId) + hours);
+                            } catch (Exception e) {
+                                System.err.println("加班时间格式错误: " + start + " - " + end);
+                            }
+                        }
+                        break;
+                }
+            }
+        }
+
+        // 构建结果
+        for (Employee emp : employees) {
+            int workDays = workDaysMap.get(emp.getId());
+            int lateDays = lateDaysMap.get(emp.getId());
+            int leaveDays = leaveDaysMap.get(emp.getId());
+            int overtimeHours = overtimeMap.get(emp.getId());
+            int absenceDays = absenceMap.get(emp.getId());
+
+            result.append(emp.getName()).append(" (").append(emp.getId()).append("):\n");
+            result.append("  出勤天数: ").append(workDays).append("\n");
+            result.append("  迟到次数: ").append(lateDays).append("\n");
+            result.append("  请假天数: ").append(leaveDays).append("\n");
+            result.append("  旷工天数: ").append(absenceDays).append("\n");
+            result.append("  加班时长: ").append(overtimeHours).append("小时\n\n");
+        }
+
+        statsArea.setText(result.toString());
+    }
+
+    private void showYearlyStats(int year, TextArea statsArea) {
+        StringBuilder result = new StringBuilder();
+        result.append(year).append("年考勤统计:\n\n");
+
+        Map<String, Integer> workDaysMap = new HashMap<>();
+        Map<String, Integer> lateDaysMap = new HashMap<>();
+        Map<String, Integer> leaveDaysMap = new HashMap<>();
+        Map<String, Integer> overtimeMap = new HashMap<>();
+        Map<String, Integer> absenceMap = new HashMap<>();
+        Map<String, Integer> businessDaysMap = new HashMap<>();
+
+        // 初始化统计数据
+        for (Employee emp : employees) {
+            workDaysMap.put(emp.getId(), 0);
+            lateDaysMap.put(emp.getId(), 0);
+            leaveDaysMap.put(emp.getId(), 0);
+            overtimeMap.put(emp.getId(), 0);
+            absenceMap.put(emp.getId(), 0);
+            businessDaysMap.put(emp.getId(), 0);
+        }
+
+        // 统计考勤数据
+        for (AttendanceRecord record : attendanceRecords) {
+            LocalDate recordDate = record.getDate();
+            if (recordDate.getYear() == year) {
+                String empId = record.getEmployeeId();
+                String status = record.getStatus();
+
+                switch (status) {
+                    case "出勤":
+                        workDaysMap.put(empId, workDaysMap.get(empId) + 1);
+                        // 检查是否迟到
+                        if (record.getStartTime().compareTo("09:00") > 0) {
+                            lateDaysMap.put(empId, lateDaysMap.get(empId) + 1);
+                        }
+                        break;
+                    case "病假":
+                    case "事假":
+                    case "休假":
+                        leaveDaysMap.put(empId, leaveDaysMap.get(empId) + 1);
+                        break;
+                    case "旷工":
+                        absenceMap.put(empId, absenceMap.get(empId) + 1);
+                        break;
+                    case "加班":
+                        // 计算加班时长
+                        String start = record.getStartTime();
+                        String end = record.getEndTime();
+                        if (start != null && end != null) {
+                            try {
+                                String[] startParts = start.split(":");
+                                String[] endParts = end.split(":");
+                                int startHour = Integer.parseInt(startParts[0]);
+                                int startMin = Integer.parseInt(startParts[1]);
+                                int endHour = Integer.parseInt(endParts[0]);
+                                int endMin = Integer.parseInt(endParts[1]);
+
+                                int totalMinutes = (endHour * 60 + endMin) - (startHour * 60 + startMin);
+                                int hours = totalMinutes / 60;
+
+                                overtimeMap.put(empId, overtimeMap.get(empId) + hours);
+                            } catch (Exception e) {
+                                System.err.println("加班时间格式错误: " + start + " - " + end);
+                            }
+                        }
+                        break;
+                    case "出差":
+                        businessDaysMap.put(empId, businessDaysMap.get(empId) + 1);
+                        break;
+                }
+            }
+        }
+
+        // 构建结果
+        for (Employee emp : employees) {
+            int workDays = workDaysMap.get(emp.getId());
+            int lateDays = lateDaysMap.get(emp.getId());
+            int leaveDays = leaveDaysMap.get(emp.getId());
+            int overtimeHours = overtimeMap.get(emp.getId());
+            int absenceDays = absenceMap.get(emp.getId());
+            int businessDays = businessDaysMap.get(emp.getId());
+
+            result.append(emp.getName()).append(" (").append(emp.getId()).append("):\n");
+            result.append("  出勤天数: ").append(workDays).append("\n");
+            result.append("  迟到次数: ").append(lateDays).append("\n");
+            result.append("  请假天数: ").append(leaveDays).append("\n");
+            result.append("  旷工天数: ").append(absenceDays).append("\n");
+            result.append("  加班时长: ").append(overtimeHours).append("小时\n");
+            result.append("  出差天数: ").append(businessDays).append("\n\n");
+        }
+
+        statsArea.setText(result.toString());
+    }
+
+    // 修复个人考勤查询
+    private void showEmployeeAttendanceByDate(LocalDate date, TableView<AttendanceRecord> table) {
+        ObservableList<AttendanceRecord> records = FXCollections.observableArrayList();
+        for (AttendanceRecord record : attendanceRecords) {
+            if (record.getDate().equals(date) && record.getEmployeeId().equals(currentUser.getId())) {
+                records.add(record);
+            }
+        }
+        table.setItems(records);
+
+        if (records.isEmpty()) {
+            showAlert("提示", "没有找到" + date + "的考勤记录");
+        }
+    }
+
+    private void showEmployeeAttendanceByMonth(int month, int year, TableView<AttendanceRecord> table) {
+        ObservableList<AttendanceRecord> records = FXCollections.observableArrayList();
+        for (AttendanceRecord record : attendanceRecords) {
+            LocalDate recordDate = record.getDate();
+            if (recordDate.getMonthValue() == month &&
+                    recordDate.getYear() == year &&
+                    record.getEmployeeId().equals(currentUser.getId())) {
+                records.add(record);
+            }
+        }
+        table.setItems(records);
+
+        if (records.isEmpty()) {
+            showAlert("提示", "没有找到" + year + "年" + getMonthName(month) + "的考勤记录");
+        }
+    }
+
+    // 添加职员功能
+    private void addEmployee() {
+        // 创建对话框
+        Dialog<Employee> dialog = new Dialog<>();
+        dialog.setTitle("添加新职员");
+        dialog.setHeaderText("请输入新职员的信息");
+
+        // 创建表单
+        GridPane grid = new GridPane();
+        grid.setHgap(10);
+        grid.setVgap(10);
+        grid.setPadding(new Insets(20));
+
+        TextField idField = new TextField();
+        idField.setPromptText("职工编号");
+        TextField nameField = new TextField();
+        nameField.setPromptText("姓名");
+        TextField deptField = new TextField();
+        deptField.setPromptText("部门");
+        ComboBox<String> genderCombo = new ComboBox<>(FXCollections.observableArrayList("男", "女"));
+        genderCombo.getSelectionModel().selectFirst();
+        TextField idCardField = new TextField();
+        idCardField.setPromptText("身份证号");
+        TextField positionField = new TextField();
+        positionField.setPromptText("职务");
+        ComboBox<String> roleCombo = new ComboBox<>(FXCollections.observableArrayList("管理员", "考勤员", "职员"));
+        roleCombo.getSelectionModel().selectFirst();
+        PasswordField passwordField = new PasswordField();
+        passwordField.setPromptText("密码");
+
+        grid.add(new Label("职工编号:"), 0, 0);
+        grid.add(idField, 1, 0);
+        grid.add(new Label("姓名:"), 0, 1);
+        grid.add(nameField, 1, 1);
+        grid.add(new Label("部门:"), 0, 2);
+        grid.add(deptField, 1, 2);
+        grid.add(new Label("性别:"), 0, 3);
+        grid.add(genderCombo, 1, 3);
+        grid.add(new Label("身份证号:"), 0, 4);
+        grid.add(idCardField, 1, 4);
+        grid.add(new Label("职务:"), 0, 5);
+        grid.add(positionField, 1, 5);
+        grid.add(new Label("权限:"), 0, 6);
+        grid.add(roleCombo, 1, 6);
+        grid.add(new Label("密码:"), 0, 7);
+        grid.add(passwordField, 1, 7);
+
+        dialog.getDialogPane().setContent(grid);
+
+        // 添加按钮
+        ButtonType addButtonType = new ButtonType("添加", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(addButtonType, ButtonType.CANCEL);
+
+        // 设置结果转换器
+        dialog.setResultConverter(dialogButton -> {
+            if (dialogButton == addButtonType) {
+                // 验证输入
+                if (idField.getText().isEmpty() || nameField.getText().isEmpty() ||
+                        deptField.getText().isEmpty() || idCardField.getText().isEmpty() ||
+                        positionField.getText().isEmpty() || passwordField.getText().isEmpty()) {
+                    showAlert("错误", "所有字段都必须填写！");
+                    return null;
+                }
+
+                // 检查ID是否已存在
+                for (Employee emp : employees) {
+                    if (emp.getId().equals(idField.getText())) {
+                        showAlert("错误", "职工编号已存在！");
+                        return null;
+                    }
+                }
+
+                // 检查身份证号是否已存在
+                for (Employee emp : employees) {
+                    if (emp.getIdCard().equals(idCardField.getText())) {
+                        showAlert("错误", "身份证号已存在！");
+                        return null;
+                    }
+                }
+
+                // 创建新职员对象
+                return new Employee(
+                        idField.getText(),
+                        nameField.getText(),
+                        deptField.getText(),
+                        genderCombo.getValue(),
+                        idCardField.getText(),
+                        positionField.getText(),
+                        roleCombo.getValue(),
+                        passwordField.getText()
+                );
+            }
+            return null;
+        });
+
+        // 显示对话框并处理结果
+        Optional<Employee> result = dialog.showAndWait();
+        result.ifPresent(newEmployee -> {
+            employees.add(newEmployee);
+            saveEmployees(); // 保存到文件
+            showAlert("成功", "职员添加成功！");
+        });
+    }
+
+    // 修改职员信息功能
+    private void editEmployee() {
+        Employee selected = employeeTable.getSelectionModel().getSelectedItem();
+        if (selected == null) {
+            showAlert("错误", "请先选择一个职员");
+            return;
+        }
+
+        // 创建对话框
+        Dialog<Employee> dialog = new Dialog<>();
+        dialog.setTitle("修改职员信息");
+        dialog.setHeaderText("修改职员信息");
+
+        // 创建表单
+        GridPane grid = new GridPane();
+        grid.setHgap(10);
+        grid.setVgap(10);
+        grid.setPadding(new Insets(20));
+
+        TextField idField = new TextField(selected.getId());
+        idField.setEditable(false);
+        TextField nameField = new TextField(selected.getName());
+        TextField deptField = new TextField(selected.getDepartment());
+        ComboBox<String> genderCombo = new ComboBox<>(FXCollections.observableArrayList("男", "女"));
+        genderCombo.getSelectionModel().select(selected.getGender());
+        TextField idCardField = new TextField(selected.getIdCard());
+        idCardField.setEditable(false); // 身份证号不可修改
+        TextField positionField = new TextField(selected.getPosition());
+        ComboBox<String> roleCombo = new ComboBox<>(FXCollections.observableArrayList("管理员", "考勤员", "职员"));
+        roleCombo.getSelectionModel().select(selected.getRole());
+        PasswordField passwordField = new PasswordField();
+        passwordField.setPromptText("留空则不修改密码");
+
+        grid.add(new Label("职工编号:"), 0, 0);
+        grid.add(idField, 1, 0);
+        grid.add(new Label("姓名:"), 0, 1);
+        grid.add(nameField, 1, 1);
+        grid.add(new Label("部门:"), 0, 2);
+        grid.add(deptField, 1, 2);
+        grid.add(new Label("性别:"), 0, 3);
+        grid.add(genderCombo, 1, 3);
+        grid.add(new Label("身份证号:"), 0, 4);
+        grid.add(idCardField, 1, 4);
+        grid.add(new Label("职务:"), 0, 5);
+        grid.add(positionField, 1, 5);
+        grid.add(new Label("权限:"), 0, 6);
+        grid.add(roleCombo, 1, 6);
+        grid.add(new Label("新密码:"), 0, 7);
+        grid.add(passwordField, 1, 7);
+
+        dialog.getDialogPane().setContent(grid);
+
+        // 添加按钮
+        ButtonType saveButtonType = new ButtonType("保存", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(saveButtonType, ButtonType.CANCEL);
+
+        // 设置结果转换器
+        dialog.setResultConverter(dialogButton -> {
+            if (dialogButton == saveButtonType) {
+                // 验证输入
+                if (nameField.getText().isEmpty() || deptField.getText().isEmpty() ||
+                        positionField.getText().isEmpty()) {
+                    showAlert("错误", "姓名、部门和职务不能为空！");
+                    return null;
+                }
+
+                // 创建更新后的职员对象
+                Employee updated = new Employee(
+                        selected.getId(), // ID不可修改
+                        nameField.getText(),
+                        deptField.getText(),
+                        genderCombo.getValue(),
+                        selected.getIdCard(), // 身份证号不可修改
+                        positionField.getText(),
+                        roleCombo.getValue(),
+                        // 密码处理：如果输入了新密码则更新，否则保留原密码
+                        passwordField.getText().isEmpty() ? selected.getPassword() : passwordField.getText()
+                );
+                return updated;
+            }
+            return null;
+        });
+
+        // 显示对话框并处理结果
+        Optional<Employee> result = dialog.showAndWait();
+        result.ifPresent(updatedEmployee -> {
+            // 更新职员信息
+            selected.setName(updatedEmployee.getName());
+            selected.setDepartment(updatedEmployee.getDepartment());
+            selected.setGender(updatedEmployee.getGender());
+            selected.setPosition(updatedEmployee.getPosition());
+            selected.setRole(updatedEmployee.getRole());
+            selected.setPassword(updatedEmployee.getPassword());
+
+            // 刷新表格
+            employeeTable.refresh();
+            saveEmployees(); // 保存到文件
+            showAlert("成功", "职员信息已更新！");
+        });
+    }
+
+
+    private void deleteEmployee() {
+        // 实现删除职员逻辑
+        Employee selected = employeeTable.getSelectionModel().getSelectedItem();
+        if (selected != null) {
+            employees.remove(selected);
+            saveEmployees(); // 保存到文件
+            showAlert("删除成功", "已删除职员: " + selected.getName());
+        } else {
+            showAlert("错误", "请先选择一个职员");
+        }
+    }
+
+    private void changePassword(String oldPwd, String newPwd, String confirmPwd) {
+        if (!newPwd.equals(confirmPwd)) {
+            showAlert("错误", "两次输入的密码不一致！");
+            return;
+        }
+
+        if (currentUser.getPassword().equals(oldPwd)) {
+            currentUser.setPassword(newPwd);
+            saveEmployees(); // 保存到文件
+            showAlert("成功", "密码修改成功！");
+        } else {
+            showAlert("错误", "原密码不正确！");
+        }
+    }
+
+    // 保存职员信息到文件
+    private void saveEmployees() {
+        try (PrintWriter writer = new PrintWriter(new FileWriter(EMPLOYEE_FILE))) {
+            writer.println("职工编号,姓名,部门,性别,身份证号,职务,权限,密码"); // 标题行
+            for (Employee emp : employees) {
+                writer.println(String.join(",",
+                        emp.getId(),
+                        emp.getName(),
+                        emp.getDepartment(),
+                        emp.getGender(),
+                        emp.getIdCard(),
+                        emp.getPosition(),
+                        emp.getRole(),
+                        emp.getPassword()
+                ));
+            }
+            System.out.println("职员信息已保存");
+        } catch (IOException e) {
+            showAlert("文件错误", "无法保存职员信息: " + e.getMessage());
+        }
+    }
+
+    // 保存考勤信息到文件
+    private void saveAttendanceRecords() {
+        DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy-M-d");
+
+        try (PrintWriter writer = new PrintWriter(new FileWriter(ATTENDANCE_FILE))) {
+            writer.println("日期,职工编号,出勤状态,到岗时间,下岗时间,备注"); // 标题行
+            for (AttendanceRecord record : attendanceRecords) {
+                writer.println(String.join(",",
+                        dateFormatter.format(record.getDate()),
+                        record.getEmployeeId(),
+                        record.getStatus(),
+                        record.getStartTime(),
+                        record.getEndTime(),
+                        record.getRemarks()
+                ));
+            }
+            System.out.println("考勤信息已保存");
+        } catch (IOException e) {
+            showAlert("文件错误", "无法保存考勤信息: " + e.getMessage());
+        }
+    }
+
+    private int getMonthNumber(String month) {
+        String[] months = {"一月", "二月", "三月", "四月", "五月", "六月",
+                "七月", "八月", "九月", "十月", "十一月", "十二月"};
+        for (int i = 0; i < months.length; i++) {
+            if (months[i].equals(month)) {
+                return i + 1;
+            }
+        }
+        return LocalDate.now().getMonthValue();
+    }
+
+    private String getMonthName(int month) {
+        String[] months = {"一月", "二月", "三月", "四月", "五月", "六月",
+                "七月", "八月", "九月", "十月", "十一月", "十二月"};
+        if (month >= 1 && month <= 12) {
+            return months[month - 1];
+        }
+        return "未知月份";
+    }
+
+    // 显示警告对话框
+    private void showAlert(String title, String message) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle(title);
+        alert.setHeaderText(null);
+        alert.setContentText(message);
+        alert.showAndWait();
+    }
+
+    // =============== 数据模型类 ===============
+    public static class Employee {
+        private String id;
+        private String name;
+        private String department;
+        private String gender;
+        private String idCard;
+        private String position;
+        private String role;
+        private String password;
+
+        public Employee(String id, String name, String department, String gender,
+                        String idCard, String position, String role, String password) {
+            this.id = id;
+            this.name = name;
+            this.department = department;
+            this.gender = gender;
+            this.idCard = idCard;
+            this.position = position;
+            this.role = role;
+            this.password = password;
+        }
+
+        // Getters and Setters
+        public String getId() { return id; }
+        public String getName() { return name; }
+        public String getDepartment() { return department; }
+        public String getGender() { return gender; }
+        public String getIdCard() { return idCard; }
+        public String getPosition() { return position; }
+        public String getRole() { return role; }
+        public String getPassword() { return password; }
+        public void setPassword(String password) { this.password = password; }
+        public void setName(String name) { this.name = name; }
+        public void setDepartment(String department) { this.department = department; }
+        public void setGender(String gender) { this.gender = gender; }
+        public void setPosition(String position) { this.position = position; }
+        public void setRole(String role) { this.role = role; }
+
+    }
+
+    public static class AttendanceRecord {
+        private LocalDate date;
+        private String employeeId;
+        private String status;
+        private String startTime;
+        private String endTime;
+        private String remarks;
+
+        // 添加日期字符串属性用于表格显示
+        private String dateString;
+
+        public AttendanceRecord(LocalDate date, String employeeId, String status,
+                                String startTime, String endTime, String remarks) {
+            this.date = date;
+            this.employeeId = employeeId;
+            this.status = status;
+            this.startTime = startTime;
+            this.endTime = endTime;
+            this.remarks = remarks;
+            this.dateString = date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+        }
+
+        // Getters
+        public LocalDate getDate() { return date; }
+        public String getDateString() { return dateString; }
+        public String getEmployeeId() { return employeeId; }
+        public String getStatus() { return status; }
+        public String getStartTime() { return startTime; }
+        public String getEndTime() { return endTime; }
+        public String getRemarks() { return remarks; }
+    }
+}
